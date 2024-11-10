@@ -1,0 +1,247 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en" xml:lang="en">
+<head>
+    <title>Solar Resource Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <style>
+        #map {
+            height: 80vh;
+            width: 100%;
+        }
+        .control-panel {
+            padding: 20px;
+            background: #fff;
+            border: 1px solid #ccc;
+            margin-bottom: 20px;
+        }
+        .container {
+            display: flex;
+            width: 100%;
+        }
+
+        #left-container {
+            width: 70%; /* Chiếm 70% chiều rộng */
+        }
+
+        #right-container {
+            width: 30%; /* Chiếm 30% chiều rộng */
+            padding: 20px;
+            background: #f5f5f5;
+            overflow-y: auto;
+        }
+
+
+
+    </style>
+</head>
+<body>
+    <body>
+        <div class="control-panel">
+            <input type="number" id="lat" placeholder="Latitude" step="0.000001">
+            <input type="number" id="lon" placeholder="Longitude" step="0.000001">
+            <button onclick="goToLocation()">Go to Location</button>
+        </div>
+        
+        <div class="container">
+            <div id="left-container">
+                <div id="map">{{ map | safe }}</div>
+            </div>
+            
+            <div id="right-container" class="data-panel">
+                <h3>Solar Resource Data:</h3>
+                <div id="solar-data"></div>
+                <h3>High PV Output Area:</h3>
+                <div id="roi-data"></div>
+            </div>
+        </div>
+    </body>
+    
+
+    <script>
+        var map = L.map('map').setView([10.762622, 106.660172], 8);
+        var osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            minZoom: 3,
+            maxZoom: 18,
+        }).addTo(map);
+        map.scrollWheelZoom.enable();
+        var Satellite = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{
+            minZoom:3,
+            maxZoom:18,
+            attribution:'Google Satellite',
+        }).addTo(map);
+
+
+        var baseMaps = {
+            "OpenStreetMap": osmLayer,
+            "Google Satellite": Satellite
+        };
+
+        var LayerControl = L.control.layers(baseMaps).addTo(map);
+
+        var drawnItems = new L.FeatureGroup();
+        map.addControl(drawnItems);
+        var drawControl = new L.Control.Draw({
+            draw: {
+                polyline: false,
+                circle: false,
+                circlemarker: false,
+            },
+            edit: {
+                featureGroup: drawnItems
+            }
+        });
+        map.addControl(drawControl);
+        map.on('draw:created', function (e) {
+            var layer = e.layer;
+            drawnItems.addLayer(layer);
+        });
+        var marker = null; // Khai báo biến global để giữ tham chiếu tới marker
+
+
+        function goToLocation() {
+            var lat = document.getElementById('lat').value;
+            var lon = document.getElementById('lon').value;
+            if (lat && lon) {
+                 // Di chuyển bản đồ đến vị trí mới nhưng không thay đổi vị trí trung tâm.
+                map.setView([lat, lon], 18);
+                console.log(lat, lon);
+                // Gọi hàm lấy dữ liệu Solar
+                getSolarData(lat, lon);
+
+                // Kiểm tra nếu marker đã tồn tại thì chỉ cần cập nhật vị trí
+                if (marker) {
+                    marker.setLatLng([lat, lon]);
+                } else {
+                    marker = L.marker([lat, lon]).addTo(map);
+                }
+            }
+        }
+
+        map.on('draw:created', function (e) {
+            if (marker) {
+                map.removeLayer(marker);
+            }
+            var layer = e.layer;
+            drawnItems.addLayer(layer);
+
+            // Check if the drawn layer is a marker
+            if (e.layerType === 'marker') {
+                marker = layer;
+                var lat = layer.getLatLng().lat;
+                var lon = layer.getLatLng().lng;
+                map.setView([lat, lon], 18);
+                getSolarData(lat, lon);
+                layer.bindPopup(`Latitude: ${lat}<br>Longitude: ${lon}`).openPopup();
+            }
+        });
+
+        map.on('draw:created', function (e) {
+            var layer = e.layer;
+            drawnItems.addLayer(layer);
+
+            if (e.layerType === 'polygon' || e.layerType === 'rectangle') {
+                var bounds = layer.getBounds();
+                var center = bounds.getCenter();
+                var lat = center.lat;
+                var lon = center.lng;
+                map.setView([lat, lon], 8);    
+
+            // Convert the drawn layer to GeoJSON
+                var geoJson = layer.toGeoJSON();
+
+                // Call the handle_draw function with the appropriate parameters
+                handleDraw(geoJson);
+            }
+        });
+
+        // map.on('draw:deleted', function (e) {
+        //     var layers = e.layers;
+        //     layers.eachLayer(function (layer) {
+        //         var layerId = L.stamp(layer);
+        //         if (polygonLayers[layerId]) {
+        //             map.removeLayer(polygonLayers[layerId]);
+        //             delete polygonLayers[layerId];
+        //         }
+        //     });
+        // });
+
+        function handleDraw(geoJson) {
+            fetch('/handle_draw', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ geo_json: geoJson })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log(data);
+                // Add the new layer to the map
+                var newLayer = L.geoJSON(data.result.geo_json, {
+                    style: function (feature) {
+                        return { color: data.result.layer_params.color };
+                    }
+                }).addTo(map);
+
+                // Add the tile layer for high GHI areas to the map and LayerControl
+                var tileLayer = L.tileLayer(data.result.tile_url, { opacity: 0.5 }).addTo(map);
+                tileLayer.bringToFront(); // Bring the tile layer to the front
+                LayerControl.addOverlay(tileLayer, data.result.layer_name); // Add to LayerControl
+                console.log("hi");
+                // Display the ROI data
+                document.getElementById('roi-data').innerHTML = `
+                    <p>Area (sq km): ${data.roi_data.area} km²</p>
+                    <p>Mean Pv Output: ${data.roi_data.mean_pvOut} kWh/m²/day</p>
+                    <p>High PV Output Area (sq km): ${data.roi_data.high_pv_area} km²</p>
+                `;
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        function addTileLayer() {
+            fetch('/get_tile_url')
+            .then(response => response.json())
+            .then(data => {
+                var tileLayer = L.tileLayer(data.tile_url).addTo(map);
+                LayerControl.addOverlay(tileLayer, 'Solar Resource Map');
+                tileLayer.bringToBack();
+
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        // Add the tile layer to the map
+        addTileLayer();    
+        
+        
+        function getSolarData(lat, lon) {
+            fetch('/get_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({lat: lat, lon: lon})
+            })
+            .then(response => response.json())
+            .then(data => {
+                var html = `
+                    <p>PVOUT: ${data.pvout_ltay} kWh/m²/day</p>
+                    <p>GHI: ${data.ghi} kWh/m²/day</p>
+                    <p>DNI: ${data.dni} kWh/m²/day</p>
+                    <p>DIF: ${data.dif} kWh/m²/day</p>
+                    <p>GTI (Global Tilted Irradiation): ${data.gti} kWh/m²/day</p>
+                    <p>Optimum Tilt Angle: ${data.opta} °</p>
+                    <p>Temperature: ${data.temp_agl} °C</p>
+                    <p>Elevation (Above Sea Level): ${data.elevation_asl} m</p>
+                    <!-- Add more data points as needed -->
+                `;
+                document.getElementById('solar-data').innerHTML = html;
+            });
+        }
+    </script>
+</body>
+</html>
