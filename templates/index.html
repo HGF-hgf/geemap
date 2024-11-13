@@ -148,28 +148,49 @@
                 var center = bounds.getCenter();
                 var lat = center.lat;
                 var lon = center.lng;
-                map.setView([lat, lon], 8);    
+                // map.setView([lat, lon], 8);    
 
             // Convert the drawn layer to GeoJSON
                 var geoJson = layer.toGeoJSON();
 
                 // Call the handle_draw function with the appropriate parameters
-                handleDraw(geoJson);
+                handleDraw(geoJson, layer);
             }
         });
+        
+        var polygonLayers = {};
 
-        // map.on('draw:deleted', function (e) {
-        //     var layers = e.layers;
-        //     layers.eachLayer(function (layer) {
-        //         var layerId = L.stamp(layer);
-        //         if (polygonLayers[layerId]) {
-        //             map.removeLayer(polygonLayers[layerId]);
-        //             delete polygonLayers[layerId];
-        //         }
-        //     });
-        // });
+        map.on('draw:deleted', function (e) {
+            var layers = e.layers;
+            layers.eachLayer(function (layer) {
+                var geoJson = layer.toGeoJSON();
+                handleDeleted(geoJson);
 
-        function handleDraw(geoJson) {
+                var layerId = L.stamp(layer);
+                if (polygonLayers[layerId]) {
+                    map.removeLayer(polygonLayers[layerId]);
+                    delete polygonLayers[layerId];
+                }
+            });
+        });
+
+        function handleDeleted(geoJson) {
+            fetch('/handle_deleted', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ geo_json: geoJson })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log(data);
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+
+        function handleDraw(geoJson, layer) {
             fetch('/handle_draw', {
                 method: 'POST',
                 headers: {
@@ -181,7 +202,7 @@
             .then(data => {
                 console.log(data);
                 // Add the new layer to the map
-                var newLayer = L.geoJSON(data.result.geo_json, {
+                L.geoJSON(data.result.geo_json, {
                     style: function (feature) {
                         return { color: data.result.layer_params.color };
                     }
@@ -191,6 +212,8 @@
                 var tileLayer = L.tileLayer(data.result.tile_url, { opacity: 0.5 }).addTo(map);
                 tileLayer.bringToFront(); // Bring the tile layer to the front
                 LayerControl.addOverlay(tileLayer, data.result.layer_name); // Add to LayerControl
+                var layerId = L.stamp(layer);
+                polygonLayers[layerId] = tileLayer;
                 console.log("hi");
                 // Display the ROI data
                 document.getElementById('roi-data').innerHTML = `

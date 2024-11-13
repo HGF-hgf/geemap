@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Chatbot</title>
+    <style>
+        #chatbox {
+            width: 300px;
+            height: 400px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            overflow-y: scroll;
+        }
+        #user-input {
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chatbot</h1>
+    <div id="chatbox"></div>
+    <input type="text" id="user-input" placeholder="Type a message...">
+    <button onclick="sendMessage()">Send</button>
+
+    <script>
+        let session_id = Math.random().toString(36).substr(2, 9);
+
+        function sendMessage() {
+            let userInput = document.getElementById('user-input').value;
+            document.getElementById('user-input').value = '';
+
+            let chatbox = document.getElementById('chatbox');
+            chatbox.innerHTML += `<p><strong>You:</strong> ${userInput}</p>`;
+
+            fetch('/chatbot', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ message: userInput, session_id: session_id })
+            })
+            .then(response => response.json())
+            .then(data => {
+                chatbox.innerHTML += `<p><strong>Bot:</strong> ${data.message}</p>`;
+                chatbox.scrollTop = chatbox.scrollHeight;
+            })
+            .catch(error => console.error('Error:', error));
+        }
+    </script>
+</body>
+</html>

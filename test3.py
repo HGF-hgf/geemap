@@ -21,6 +21,8 @@ dif = ee.Image("projects/earthengine-legacy/assets/projects/sat-io/open-datasets
 dni = ee.Image("projects/earthengine-legacy/assets/projects/sat-io/open-datasets/global_solar_atlas/dni_LTAy_AvgDailyTotals")
 ghi = ee.Image("projects/earthengine-legacy/assets/projects/sat-io/open-datasets/global_solar_atlas/ghi_LTAy_AvgDailyTotals")
 
+roi_layer_pairs = []
+
 def get_solar_data(lat, lon):
     point = ee.Geometry.Point(lon, lat)
     
@@ -35,7 +37,7 @@ def get_solar_data(lat, lon):
         bestEffort=True
     ).get('b1')
     pvout_ltay_value = pvout_ltay_value.getInfo() if pvout_ltay_value is not None else "No PV Output (Annual) data"
-    data['pvout_ltay'] = round(pvout_ltay_value, 2) if pvout_ltay_value is not None else "No data"
+    data['pvout_ltay'] = pvout_ltay_value if pvout_ltay_value is not None else "No data"
     
     # GHI (Global Horizontal Irradiation)
     ghi_value = ghi.reduceRegion(
@@ -119,7 +121,7 @@ def generate_id():
 
 def handle_draw(geo_json):
     roi_data = {}
-    roi_layer_pairs = []
+    global roi_layer_pairs
     roi = None
     if geo_json['geometry']['type'] in ['Polygon', 'LineString']:
         roi_id = generate_id()
@@ -152,14 +154,16 @@ def handle_draw(geo_json):
         print('Area in square kilometers:', area_km2.getInfo())
         roi_data['area'] = round(area_km2.getInfo(),2)
 
-        # Calculate mean GHI
-        mean_ghi = pvout_ltam.mean().reduceRegion(
+        mean_image = pvout_ltay.focal_mean(radius=600, units='meters')
+
+        # Tính trung bình của hình ảnh đã làm mịn trong vùng roi
+        mean_ghi = mean_image.reduceRegion(
             reducer=ee.Reducer.mean(),
             geometry=roi,
             maxPixels=1e9
-        ).get('b1')  # Adjust 'b1' if necessary for the correct band
+        ).get('b1')
         print('Mean GHI:', mean_ghi.getInfo())
-        roi_data['mean_pvOut'] = round(mean_ghi.getInfo(),2)
+        roi_data['mean_pvOut'] = mean_ghi.getInfo()
         mean_ghi_image = ee.Image.constant(mean_ghi.getInfo())
         # Create an image where pixels have 1 if they exceed meanGhi, otherwise 0
         ghi_high = pvout_ltam.mean().gt(mean_ghi_image.multiply(1.005)).selfMask().clip(roi)
@@ -208,6 +212,33 @@ def handle_draw(geo_json):
             'tile_url': geemap.ee_tile_layer(ghi_high, layer_params, layer_name).url            
         }, roi_data
         
+def remove_layer_for_roi(roi_id):
+    global roi_layer_pairs
+    for i in range(len(roi_layer_pairs)):
+        # Compare the ID of the deleted ROI with the ID in the array
+        if roi_layer_pairs[i]['id'] == roi_id:
+            # Remove the corresponding layer for that ROI
+            # Remove the roi and layer pair from the array
+            roi_layer_pairs.pop(i)
+            return True
+        return False
+
+def handle_deleted(geo_json):
+    global roi_layer_pairs
+    print(f"Deleting ROI with geo_json: {geo_json}")
+    for entry in roi_layer_pairs:
+        print(f"Checking entry: {entry['geo_json']}")
+        if entry['geo_json']['geometry'] == geo_json['geometry']:
+            roi_id = entry['id']
+            if remove_layer_for_roi(roi_id):
+                # Only remove from list if the layer was found and removed
+                roi_layer_pairs.remove(entry)
+                print(f"ROI with ID {roi_id} has been removed")
+            break
+    else:
+        print("Matching ROI not found for deletion.")
+
+    
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -227,6 +258,13 @@ def handle_draw_endpoint():
     geo_json = data['geo_json']
     result, roi_data = handle_draw(geo_json)
     return jsonify({'result': result, 'roi_data': roi_data})
+
+@app.route('/handle_deleted', methods=['POST'])
+def handle_deleted_endpoint():
+    data = request.get_json()
+    geo_json = data['geo_json']
+    handle_deleted(geo_json)
+    return jsonify({'status': 'success'})
 
 @app.route('/get_tile_url', methods=['GET'])
 def get_tile_url():
