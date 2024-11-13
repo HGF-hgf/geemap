@@ -166,7 +166,7 @@ def handle_draw(geo_json):
         roi_data['mean_pvOut'] = mean_ghi.getInfo()
         mean_ghi_image = ee.Image.constant(mean_ghi.getInfo())
         # Create an image where pixels have 1 if they exceed meanGhi, otherwise 0
-        ghi_high = pvout_ltam.mean().gt(mean_ghi_image.multiply(1.005)).selfMask().clip(roi)
+        ghi_high = pvout_ltay.gt(mean_ghi_image).selfMask().clip(roi)
 
         # Add layer for high GHI areas and save the layer
         layer_name = f'High GHI Areas - {roi_id}'
@@ -197,17 +197,13 @@ def handle_draw(geo_json):
         except Exception as e:
             print(f"Error getting high GHI area info: {e}")
             
-        vis_params = {
-            'min': 0.55,    
-            'max': 7,
-            'opacity': 0.4    
-        }
+        ghi_high_viz = {'min': 0, 'max': 1, 'palette': ['black', 'yellow']}
         
 
         return {
             'roi_id': roi_id,
             'layer_name': layer_name,
-            'layer_params': vis_params,
+            'layer_params': ghi_high_viz,
             'geo_json': geo_json,
             'tile_url': geemap.ee_tile_layer(ghi_high, layer_params, layer_name).url            
         }, roi_data

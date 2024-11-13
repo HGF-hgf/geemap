@@ -209,7 +209,7 @@
                 }).addTo(map);
 
                 // Add the tile layer for high GHI areas to the map and LayerControl
-                var tileLayer = L.tileLayer(data.result.tile_url, { opacity: 0.5 }).addTo(map);
+                var tileLayer = L.tileLayer(data.result.tile_url, { opacity: 0.8}).addTo(map);
                 tileLayer.bringToFront(); // Bring the tile layer to the front
                 LayerControl.addOverlay(tileLayer, data.result.layer_name); // Add to LayerControl
                 var layerId = L.stamp(layer);
